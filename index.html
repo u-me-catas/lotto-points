@@ -7,14 +7,15 @@
     <style>
         /*
          * ロトポイント集計アプリ
-         * Version 2.0.1 (2026-10-24)
+         * Version 2.1.0 (2026-10-25)
          * - テレビ向け16:9レイアウトと累計数字の視認性を改善
          * - 取消、日次人数、達成状態、ポップアップ待ち行列の整合性を修正
          * - 保存失敗・破損データ保護、バックアップ検証を追加
          * - 正の整数検証、二重加算防止、設定値の安全な描画を追加
          * - 取消確認をブラウザ標準ダイアログからアプリ内確認画面へ変更
+         * - 累計ポイントと進捗グラフを主役にしたテレビ向け情報設計へ再構成
+         * - 操作部と補助情報を下部へ集約し、標準日本語フォントへ統一
          */
-        @import url('https://fonts.googleapis.com/css2?family=Yusei+Magic&family=Noto+Sans+JP:wght@400;700;900&display=swap');
 
         :root {
             --red: #b91c1c;
@@ -29,7 +30,7 @@
         html, body { margin: 0; min-height: 100%; }
         .hidden { display: none !important; }
         body {
-            font-family: 'Noto Sans JP', system-ui, sans-serif;
+            font-family: Meiryo, 'Yu Gothic', 'YuGothic', system-ui, sans-serif;
             background: radial-gradient(circle at top, #fffdf6 0, var(--cream) 55%, #ffefbd 100%);
             color: var(--ink);
         }
@@ -38,7 +39,7 @@
             outline: 4px solid #2563eb;
             outline-offset: 3px;
         }
-        .title-font { font-family: 'Yusei Magic', 'Noto Sans JP', sans-serif; }
+        .title-font { font-family: inherit; }
 
         /* ===== ヘッダー ===== */
         .app-header {
@@ -467,14 +468,174 @@
         .confetti { position: absolute; top: -16px; z-index: 50; width: 10px; height: 15px; pointer-events: none; animation: fall linear forwards; }
         @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
 
+        /* ===== Version 2.1: 情報の優先順位を明確にした実施画面 ===== */
+        #view-main {
+            width: min(100%, 1840px);
+            height: calc(100vh - var(--header-height));
+            min-height: 590px;
+            padding: clamp(6px, 1vh, 12px) clamp(10px, 1.4vw, 24px) 10px;
+            grid-template-rows: auto minmax(190px, 1.55fr) minmax(150px, 1fr) auto;
+            gap: clamp(6px, 1vh, 10px);
+            align-content: stretch;
+        }
+        .event-duration {
+            padding: 2px 14px;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            font-size: clamp(.78rem, 1.1vw, .98rem);
+            font-weight: 700;
+        }
+        .total-card {
+            min-height: 0;
+            grid-template-columns: minmax(0, 1fr) minmax(210px, 18vw);
+            padding: clamp(8px, 1.2vh, 16px) clamp(18px, 2.6vw, 46px);
+            border-width: 2px;
+            border-radius: 18px;
+            background: rgba(255,255,255,.95);
+            box-shadow: 0 4px 14px rgba(127,29,29,.10);
+        }
+        .total-card::before, .total-card::after { display: none; }
+        .total-heading {
+            font-size: clamp(1.15rem, 1.7vw, 1.65rem);
+            letter-spacing: .04em;
+        }
+        .total-number-wrap { gap: clamp(8px, 1vw, 14px); }
+        #disp-total {
+            font-family: Meiryo, 'Yu Gothic', 'YuGothic', Arial, sans-serif;
+            font-size: clamp(5.8rem, min(13vw, 25vh), 15rem);
+            letter-spacing: .025em;
+            line-height: .9;
+            text-shadow: 0 2px 0 #fff, 0 4px 6px rgba(127,29,29,.14);
+        }
+        .total-unit { font-size: clamp(1.45rem, 2.3vw, 2.5rem); }
+        .remaining-box {
+            max-width: none;
+            padding: 9px 12px;
+            border-width: 1px;
+            border-radius: 12px;
+            background: #f5f8ff;
+            font-size: clamp(.85rem, 1.2vw, 1.08rem);
+            font-weight: 700;
+        }
+        #disp-remaining {
+            font-family: Meiryo, 'Yu Gothic', 'YuGothic', Arial, sans-serif;
+            font-size: clamp(1.55rem, 2.5vw, 2.65rem);
+        }
+        .progress-stage {
+            min-height: 0;
+            padding: clamp(8px, 1.2vh, 14px) clamp(14px, 2vw, 32px) 0;
+            border: 2px solid #e7d5b3;
+            border-radius: 16px;
+            background: rgba(255,255,255,.9);
+            box-shadow: 0 4px 14px rgba(120,53,15,.08);
+        }
+        .progress-caption {
+            margin-bottom: clamp(6px, 1vh, 11px);
+            font-size: clamp(.95rem, 1.3vw, 1.2rem);
+        }
+        .progress-container {
+            height: clamp(54px, 8vh, 82px);
+            border-width: 3px;
+            box-shadow: inset 0 5px 9px rgba(0,0,0,.15), 0 3px 9px rgba(0,0,0,.08);
+        }
+        .milestone-marker { width: 5px; }
+        .milestone-label {
+            top: calc(clamp(56px, 8.3vh, 84px) + var(--lane) * 34px);
+            width: 184px;
+            min-height: 31px;
+            padding: 4px 8px;
+            font-size: clamp(.72rem, .9vw, .92rem);
+        }
+        .operation-grid {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1.45fr) minmax(320px, .55fr);
+            align-items: stretch;
+            gap: clamp(8px, 1.1vw, 14px);
+        }
+        .panel { border-radius: 14px; box-shadow: 0 3px 10px rgba(0,0,0,.07); }
+        .add-panel {
+            min-height: 112px;
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px);
+            grid-template-rows: auto auto;
+            align-items: center;
+            gap: 4px 12px;
+            padding: 9px 14px;
+            border-width: 2px;
+        }
+        .add-title {
+            grid-column: 1 / -1;
+            font-size: clamp(.88rem, 1.1vw, 1.05rem);
+            font-weight: 700;
+        }
+        #input-points {
+            height: clamp(60px, 8vh, 76px);
+            padding: 5px 12px;
+            border-width: 3px;
+            border-radius: 11px;
+            font-family: Meiryo, 'Yu Gothic', 'YuGothic', Arial, sans-serif;
+            font-size: clamp(2rem, 3.2vw, 3.35rem);
+        }
+        .input-unit { font-size: clamp(1.1rem, 1.7vw, 1.6rem); }
+        .input-error {
+            position: absolute;
+            left: 14px;
+            bottom: 1px;
+            margin: 0;
+            min-height: 0;
+            font-size: .75rem;
+        }
+        .add-panel { position: relative; }
+        .btn-add {
+            min-height: clamp(60px, 8vh, 76px);
+            padding: 6px 12px;
+            border-width: 3px;
+            border-radius: 12px;
+            font-size: clamp(1.55rem, 2.5vw, 2.45rem);
+            text-shadow: 1px 1px 2px #450a0a;
+            box-shadow: 0 4px 0 #7f1d1d, 0 6px 8px rgba(0,0,0,.18);
+        }
+        .btn-add:active { transform: translateY(3px); }
+        .info-panel {
+            display: grid;
+            grid-template-columns: minmax(145px, .72fr) minmax(0, 1.28fr);
+            grid-template-rows: minmax(54px, 1fr) auto;
+            gap: 6px;
+        }
+        .daily-row {
+            min-height: 54px;
+            padding: 6px 10px;
+            border-left-width: 5px;
+        }
+        .daily-label { font-size: clamp(.75rem, .9vw, .9rem); }
+        .daily-value { font-size: clamp(1.4rem, 2vw, 2rem); }
+        .reward-panel { padding: 6px 10px; }
+        .reward-panel h3 { margin-bottom: 2px; font-size: clamp(.78rem, .95vw, .92rem); }
+        #list-rewards { max-height: 52px; }
+        #list-rewards li { margin: 1px 0; font-size: clamp(.68rem, .78vw, .8rem); }
+        .history-actions { grid-column: 1 / -1; gap: 6px; }
+        .btn-undo, .history-details summary {
+            min-height: 36px;
+            padding: 4px 8px;
+            border-width: 1px;
+            border-radius: 8px;
+            font-size: clamp(.72rem, .85vw, .86rem);
+            font-weight: 700;
+        }
+        .history-popover { bottom: 42px; }
+
         /* ===== 画面サイズ別調整 ===== */
         @media (max-width: 900px) {
             .total-card { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
             .total-heading, .total-number-wrap, .remaining-box { grid-column: 1; }
             .remaining-box { grid-row: 3; max-width: 100%; width: 100%; margin-top: 7px; padding: 7px 12px; }
             #disp-remaining { display: inline; font-size: 1.55rem; }
+            #view-main { height: auto; min-height: calc(100vh - var(--header-height)); grid-template-rows: auto auto auto auto; }
             .operation-grid { grid-template-columns: 1fr; }
             .add-panel { grid-template-columns: minmax(0, 1fr) minmax(180px, .6fr); }
+            .info-panel { grid-template-columns: 1fr 1.5fr; }
             .milestone-row { grid-template-columns: 1fr; }
         }
         @media (max-width: 620px) {
@@ -492,16 +653,16 @@
         @media (min-width: 1000px) and (max-height: 760px) {
             :root { --header-height: 52px; }
             .app-header { padding-block: 5px; }
-            #view-main { padding-top: 6px; gap: 6px; }
+            #view-main { min-height: 540px; padding-top: 4px; gap: 5px; grid-template-rows: auto minmax(155px, 1.45fr) minmax(125px, 1fr) auto; }
             .event-duration { padding-block: 2px; }
-            .total-card { min-height: 130px; padding-block: 8px; }
-            .progress-stage { min-height: 116px; padding-top: 4px; }
-            .progress-container { height: 42px; }
-            .milestone-label { top: calc(42px + var(--lane) * 30px); }
+            .total-card { min-height: 0; padding-block: 6px; }
+            .progress-stage { min-height: 0; padding-top: 5px; }
+            .progress-container { height: 48px; }
+            .milestone-label { top: calc(50px + var(--lane) * 29px); }
             .operation-grid { gap: 10px; }
-            .add-panel { padding: 10px 14px; }
-            #input-points { height: 78px; }
-            .btn-add { min-height: 76px; }
+            .add-panel { min-height: 96px; padding: 6px 12px; }
+            #input-points { height: 58px; }
+            .btn-add { min-height: 58px; }
             .reward-panel { padding-block: 6px; }
             #list-rewards { max-height: 58px; }
         }
@@ -515,7 +676,7 @@
     <div id="status-banner" class="status-banner" role="alert" hidden></div>
 
     <header class="app-header">
-        <h1 class="app-title title-font" id="header-event-name">ロトポイント</h1>
+        <h1 class="app-title title-font" id="header-event-name">ロトポイント集計アプリ</h1>
         <nav class="tab-list" aria-label="画面切り替え">
             <button type="button" onclick="switchTab('main')" id="tab-main-btn" class="tab-btn active">実施画面</button>
             <button type="button" onclick="switchTab('settings')" id="tab-settings-btn" class="tab-btn">設定・データ管理</button>
@@ -639,9 +800,9 @@
            定数・状態管理
            ========================================================= */
         const STORAGE_KEY = 'jumboPointData';
-        const APP_VERSION = '2.0.1';
+        const APP_VERSION = '2.1.0';
         const DEFAULT_STATE = {
-            eventName: 'ロトポイント',
+            eventName: 'ロトポイント集計アプリ',
             duration: '2026年12月1日 〜 12月25日',
             finalGoal: 3000000,
             totalPoints: 0,
@@ -700,6 +861,7 @@
 
             const normalized = clone(DEFAULT_STATE);
             normalized.eventName = typeof candidate.eventName === 'string' ? candidate.eventName.slice(0, 100) : (strict ? (() => { throw new Error('イベント名が不正です。'); })() : DEFAULT_STATE.eventName);
+            if (normalized.eventName === 'ロトポイント') normalized.eventName = 'ロトポイント集計アプリ';
             normalized.duration = typeof candidate.duration === 'string' ? candidate.duration.slice(0, 100) : (strict ? (() => { throw new Error('開催期間が不正です。'); })() : DEFAULT_STATE.duration);
             normalized.finalGoal = candidate.finalGoal;
             normalized.totalPoints = candidate.totalPoints;
