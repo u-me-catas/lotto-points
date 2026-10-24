@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ロトポイント集計アプリ</title>
+    <style>
+        /*
+         * ロトポイント集計アプリ
+         * Version 2.0.1 (2026-10-24)
+         * - テレビ向け16:9レイアウトと累計数字の視認性を改善
+         * - 取消、日次人数、達成状態、ポップアップ待ち行列の整合性を修正
+         * - 保存失敗・破損データ保護、バックアップ検証を追加
+         * - 正の整数検証、二重加算防止、設定値の安全な描画を追加
+         * - 取消確認をブラウザ標準ダイアログからアプリ内確認画面へ変更
+         */
+        @import url('https://fonts.googleapis.com/css2?family=Yusei+Magic&family=Noto+Sans+JP:wght@400;700;900&display=swap');
+
+        :root {
+            --red: #b91c1c;
+            --red-dark: #7f1d1d;
+            --gold: #f4c430;
+            --cream: #fff9e6;
+            --ink: #292524;
+            --header-height: 58px;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-height: 100%; }
+        .hidden { display: none !important; }
+        body {
+            font-family: 'Noto Sans JP', system-ui, sans-serif;
+            background: radial-gradient(circle at top, #fffdf6 0, var(--cream) 55%, #ffefbd 100%);
+            color: var(--ink);
+        }
+        button, input { font: inherit; }
+        button:focus-visible, input:focus-visible, summary:focus-visible {
+            outline: 4px solid #2563eb;
+            outline-offset: 3px;
+        }
+        .title-font { font-family: 'Yusei Magic', 'Noto Sans JP', sans-serif; }
+
+        /* ===== ヘッダー ===== */
+        .app-header {
+            min-height: var(--header-height);
+            padding: 7px clamp(12px, 2vw, 28px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: rgba(255,255,255,.96);
+            border-bottom: 3px solid var(--gold);
+            box-shadow: 0 3px 12px rgba(120,53,15,.12);
+            position: relative;
+            z-index: 40;
+        }
+        .app-title {
+            margin: 0;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--red-dark);
+            font-size: clamp(1.05rem, 2vw, 1.65rem);
+            font-weight: 900;
+        }
+        .tab-list { display: flex; gap: 8px; flex: 0 0 auto; }
+        .tab-btn {
+            min-height: 40px;
+            padding: 6px clamp(12px, 1.6vw, 24px);
+            border: 2px solid var(--red);
+            border-radius: 999px;
+            background: #fff;
+            color: var(--red);
+            font-weight: 900;
+            box-shadow: 0 2px 5px rgba(0,0,0,.08);
+        }
+        .tab-btn.active { background: var(--red); color: #fff; }
+
+        /* ===== 保存状態の警告 ===== */
+        .status-banner {
+            position: sticky;
+            top: 0;
+            z-index: 60;
+            padding: 10px 18px;
+            background: #7f1d1d;
+            color: #fff;
+            text-align: center;
+            font-weight: 900;
+            box-shadow: 0 4px 10px rgba(0,0,0,.25);
+        }
+        .status-banner[hidden] { display: none; }
+
+        /* ===== 実施画面：16:9テレビ優先 ===== */
+        #view-main {
+            width: min(100%, 1540px);
+            min-height: calc(100vh - var(--header-height));
+            margin: 0 auto;
+            padding: clamp(8px, 1.2vh, 16px) clamp(12px, 2vw, 30px) 16px;
+            display: grid;
+            grid-template-rows: auto auto auto minmax(0, 1fr);
+            gap: clamp(7px, 1.2vh, 14px);
+        }
+        #view-main.hidden, #view-settings.hidden { display: none !important; }
+        .event-duration {
+            justify-self: center;
+            margin: 0;
+            padding: 4px 18px;
+            border: 1px solid #e7e5e4;
+            border-radius: 999px;
+            background: rgba(255,255,255,.9);
+            color: #57534e;
+            font-size: clamp(.9rem, 1.4vw, 1.15rem);
+            font-weight: 800;
+            box-shadow: 0 2px 8px rgba(0,0,0,.06);
+        }
+        .total-card {
+            width: 100%;
+            min-height: clamp(130px, 21vh, 205px);
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-rows: auto 1fr;
+            align-items: center;
+            gap: 0 22px;
+            padding: clamp(10px, 1.7vh, 20px) clamp(18px, 3.2vw, 54px);
+            position: relative;
+            overflow: hidden;
+            border: clamp(3px, .35vw, 6px) solid var(--red);
+            border-radius: 26px;
+            background: linear-gradient(135deg, #fff 0%, #fffdf7 64%, #fff1c7 100%);
+            box-shadow: 0 8px 24px rgba(127,29,29,.15);
+        }
+        .total-card::before, .total-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            width: 58px;
+            height: 58px;
+            background: var(--red);
+        }
+        .total-card::before { left: 0; border-radius: 0 0 100% 0; }
+        .total-card::after { right: 0; border-radius: 0 0 0 100%; }
+        .total-heading {
+            grid-column: 1;
+            margin: 0;
+            text-align: center;
+            color: var(--red-dark);
+            font-size: clamp(1.15rem, 2vw, 1.8rem);
+            font-weight: 900;
+            line-height: 1.1;
+        }
+        .total-number-wrap {
+            grid-column: 1;
+            min-width: 0;
+            display: flex;
+            justify-content: center;
+            align-items: baseline;
+            gap: clamp(8px, 1.3vw, 18px);
+            line-height: .95;
+        }
+        #disp-total {
+            min-width: 0;
+            max-width: 100%;
+            white-space: nowrap;
+            color: #dc2626;
+            font-family: 'Arial Black', 'Noto Sans JP', system-ui, sans-serif;
+            font-size: clamp(3.65rem, 8vw, 7.4rem);
+            font-weight: 900;
+            font-variant-numeric: tabular-nums lining-nums;
+            letter-spacing: .045em;
+            text-shadow: 0 3px 0 #fff, 0 5px 8px rgba(127,29,29,.2);
+        }
+        .total-unit { font-size: clamp(1.4rem, 3vw, 2.4rem); font-weight: 900; color: #44403c; }
+        .remaining-box {
+            grid-column: 2;
+            grid-row: 1 / span 2;
+            max-width: min(31vw, 360px);
+            padding: 12px 18px;
+            border: 2px solid #93c5fd;
+            border-radius: 18px;
+            background: #eff6ff;
+            color: #1e3a8a;
+            text-align: center;
+            font-size: clamp(1rem, 1.55vw, 1.35rem);
+            font-weight: 900;
+        }
+        #disp-remaining {
+            display: block;
+            overflow-wrap: anywhere;
+            color: #1d4ed8;
+            font-family: 'Arial Black', system-ui, sans-serif;
+            font-size: clamp(1.75rem, 3.2vw, 3.1rem);
+            font-variant-numeric: tabular-nums;
+            line-height: 1.1;
+        }
+
+        /* ===== 横長プログレスバー ===== */
+        .progress-stage {
+            min-height: 132px;
+            padding: 7px clamp(12px, 2vw, 28px) 0;
+            border: 1px solid #eadfca;
+            border-radius: 20px;
+            background: rgba(255,255,255,.72);
+        }
+        .progress-caption {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 6px;
+            color: #57534e;
+            font-size: clamp(.8rem, 1.2vw, 1rem);
+            font-weight: 900;
+        }
+        .progress-container {
+            position: relative;
+            width: 100%;
+            height: clamp(40px, 6vh, 58px);
+            overflow: visible;
+            border: 3px solid #cbd5e1;
+            border-radius: 9999px;
+            background: #e2e8f0;
+            box-shadow: inset 0 4px 7px rgba(0,0,0,.14);
+        }
+        .progress-bar-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 0;
+            max-width: 100%;
+            border-radius: 9999px;
+            background: linear-gradient(90deg, #facc15, #f97316 72%, #dc2626);
+            box-shadow: inset 0 -4px 8px rgba(0,0,0,.17), 0 3px 8px rgba(249,115,22,.35);
+            transition: width 1s cubic-bezier(.22,1,.36,1);
+            z-index: 1;
+        }
+        .milestone-marker {
+            position: absolute;
+            top: -3px;
+            bottom: -3px;
+            width: 4px;
+            transform: translateX(-50%);
+            border-radius: 3px;
+            background: #991b1b;
+            z-index: 3;
+        }
+        .milestone-marker.at-end { transform: translateX(-100%); }
+        .milestone-label {
+            position: absolute;
+            left: clamp(84px, var(--marker-position), calc(100% - 84px));
+            top: calc(47px + var(--lane) * 32px);
+            width: 168px;
+            min-height: 28px;
+            transform: translateX(-50%);
+            padding: 3px 7px;
+            overflow: hidden;
+            border: 2px solid #b91c1c;
+            border-radius: 8px;
+            background: rgba(255,255,255,.98);
+            color: #991b1b;
+            text-align: center;
+            font-size: clamp(.68rem, 1vw, .88rem);
+            font-weight: 900;
+            line-height: 1.12;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            box-shadow: 0 2px 5px rgba(0,0,0,.1);
+            z-index: 4;
+        }
+        .milestone-label.achieved { background: #b91c1c; color: #fff; }
+        .milestone-label .reward-name { display: block; overflow: hidden; text-overflow: ellipsis; }
+
+        /* ===== 操作エリア ===== */
+        .operation-grid {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(340px, .75fr);
+            gap: clamp(10px, 1.5vw, 20px);
+        }
+        .panel {
+            min-width: 0;
+            border-radius: 22px;
+            background: #fff;
+            box-shadow: 0 5px 16px rgba(0,0,0,.09);
+        }
+        .add-panel {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(210px, .58fr);
+            grid-template-rows: auto 1fr;
+            gap: 8px 14px;
+            padding: clamp(12px, 2vh, 22px);
+            border: 3px solid var(--gold);
+        }
+        .add-title { grid-column: 1 / -1; margin: 0; color: #44403c; font-size: clamp(1.05rem, 1.5vw, 1.35rem); font-weight: 900; }
+        .point-input-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        #input-points {
+            width: 100%;
+            min-width: 0;
+            height: clamp(76px, 12vh, 118px);
+            padding: 8px 16px;
+            border: 4px solid #d6d3d1;
+            border-radius: 16px;
+            color: #1c1917;
+            text-align: right;
+            font-family: 'Arial Black', system-ui, sans-serif;
+            font-size: clamp(2.25rem, 5vw, 4.8rem);
+            font-variant-numeric: tabular-nums;
+        }
+        #input-points:focus { border-color: #dc2626; }
+        .input-unit { flex: 0 0 auto; font-size: clamp(1.3rem, 2.3vw, 2rem); font-weight: 900; color: #57534e; }
+        .input-error { grid-column: 1 / -1; min-height: 1.35em; margin: -3px 0 0; color: #b91c1c; font-size: .9rem; font-weight: 800; }
+        .btn-add {
+            min-height: 78px;
+            padding: 10px;
+            border: 4px solid #facc15;
+            border-radius: 18px;
+            background: linear-gradient(#ef4444, #b91c1c);
+            color: #fff;
+            font-size: clamp(2rem, 3.6vw, 3.6rem);
+            font-weight: 900;
+            text-shadow: 1px 2px 2px #450a0a;
+            box-shadow: 0 6px 0 #7f1d1d, 0 9px 12px rgba(0,0,0,.22);
+            cursor: pointer;
+        }
+        .btn-add:active { transform: translateY(5px); box-shadow: 0 1px 0 #7f1d1d; }
+        .btn-add:disabled { filter: grayscale(.7); cursor: not-allowed; opacity: .62; }
+        .info-panel { display: grid; grid-template-rows: auto minmax(80px, 1fr) auto; gap: 8px; min-height: 0; }
+        .daily-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 55px;
+            padding: 8px 16px;
+            border-left: 8px solid #ef4444;
+        }
+        .daily-label { font-size: clamp(.95rem, 1.4vw, 1.2rem); font-weight: 900; }
+        .daily-value { color: #dc2626; font-size: clamp(1.7rem, 3vw, 2.65rem); font-weight: 900; }
+        .reward-panel { min-height: 0; padding: 9px 15px; border: 1px solid #e7e5e4; overflow: hidden; }
+        .reward-panel h3 { margin: 0 0 5px; font-size: clamp(.95rem, 1.35vw, 1.15rem); font-weight: 900; }
+        #list-rewards { max-height: 76px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+        #list-rewards li { display: flex; gap: 7px; align-items: flex-start; margin: 3px 0; font-size: clamp(.78rem, 1.1vw, .98rem); font-weight: 800; overflow-wrap: anywhere; }
+        .history-actions { display: flex; gap: 8px; align-items: stretch; }
+        .btn-undo {
+            flex: 1;
+            min-height: 48px;
+            padding: 7px 12px;
+            border: 2px solid #78716c;
+            border-radius: 12px;
+            background: #f5f5f4;
+            color: #292524;
+            font-weight: 900;
+            cursor: pointer;
+        }
+        .btn-undo:disabled { opacity: .42; cursor: not-allowed; }
+        .history-details { flex: .7; position: relative; }
+        .history-details summary {
+            min-height: 48px;
+            display: grid;
+            place-items: center;
+            padding: 7px 10px;
+            border: 2px solid #d6d3d1;
+            border-radius: 12px;
+            background: #fff;
+            font-weight: 800;
+            cursor: pointer;
+            list-style: none;
+        }
+        .history-details summary::-webkit-details-marker { display: none; }
+        .history-popover {
+            position: absolute;
+            right: 0;
+            bottom: 54px;
+            z-index: 35;
+            width: min(470px, 80vw);
+            max-height: 250px;
+            padding: 10px;
+            overflow: auto;
+            border: 2px solid #a8a29e;
+            border-radius: 14px;
+            background: #fff;
+            box-shadow: 0 12px 30px rgba(0,0,0,.25);
+        }
+        .history-table { width: 100%; border-collapse: collapse; }
+        .history-table th, .history-table td { padding: 7px; border-bottom: 1px solid #e7e5e4; text-align: left; }
+        .history-table td:last-child { color: #1d4ed8; font-weight: 900; }
+
+        /* ===== 設定画面 ===== */
+        #view-settings { min-height: calc(100vh - var(--header-height)); padding: 22px; background: #f5f5f4; }
+        .settings-card { width: min(100%, 980px); margin: 0 auto 20px; padding: clamp(18px, 3vw, 30px); border-radius: 20px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,.09); }
+        .settings-card h2 { margin: 0 0 18px; padding-bottom: 8px; border-bottom: 4px solid var(--red); font-size: clamp(1.45rem, 2.7vw, 2rem); font-weight: 900; }
+        .form-stack { display: grid; gap: 16px; }
+        .form-field label { display: block; margin-bottom: 5px; color: #44403c; font-weight: 900; }
+        .form-field input { width: 100%; padding: 11px; border: 2px solid #d6d3d1; border-radius: 9px; }
+        .milestone-settings { display: grid; gap: 12px; }
+        .milestone-row { display: grid; grid-template-columns: 1fr 1fr 1.4fr auto; gap: 10px; align-items: end; padding: 14px; border: 1px solid #d6d3d1; border-radius: 12px; background: #fafaf9; }
+        .milestone-row.new-row { border-color: #86efac; background: #f0fdf4; }
+        .row-field label { display: block; margin-bottom: 4px; color: #57534e; font-size: .75rem; font-weight: 900; }
+        .row-field input { width: 100%; padding: 8px; border: 1px solid #a8a29e; border-radius: 7px; }
+        .btn { min-height: 42px; padding: 8px 17px; border: 0; border-radius: 10px; color: #fff; font-weight: 900; box-shadow: 0 2px 6px rgba(0,0,0,.14); cursor: pointer; }
+        .btn-red { background: #b91c1c; } .btn-green { background: #15803d; } .btn-blue { background: #1d4ed8; } .btn-purple { background: #7e22ce; }
+        .btn-remove { border: 0; background: transparent; color: #b91c1c; font-weight: 900; cursor: pointer; }
+        .settings-heading-row, .data-actions, .manual-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+        .save-settings-wrap { margin-top: 20px; text-align: center; }
+        .save-settings-wrap .btn { min-height: 54px; padding-inline: 34px; font-size: 1.2rem; }
+        .data-note { color: #57534e; }
+        .manual-row { justify-content: flex-start; margin-top: 20px; padding-top: 18px; border-top: 1px solid #d6d3d1; }
+        .manual-row input { width: min(100%, 280px); padding: 10px; border: 2px solid #d6d3d1; border-radius: 9px; }
+
+        /* ===== お祝いポップアップ ===== */
+        .modal-overlay { background: rgba(127,29,29,.9); backdrop-filter: blur(4px); }
+        #celebration-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px;
+        }
+        .celebration-shell {
+            width: min(94vw, 980px);
+            max-height: calc(100vh - 28px);
+            min-height: min(600px, calc(100vh - 28px));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            border: clamp(7px, 1vw, 14px) solid #facc15;
+            border-radius: 32px;
+            background: #fffdf2;
+            box-shadow: 0 0 0 7px #fff, 0 24px 60px rgba(0,0,0,.45);
+        }
+        .sunburst-bg { position: absolute; inset: -50%; background: repeating-conic-gradient(#fff 0deg 10deg, #fee2e2 10deg 20deg); animation: rotate-bg 45s linear infinite; }
+        @keyframes rotate-bg { to { transform: rotate(360deg); } }
+        .modal-content-wrapper { width: min(90%, 760px); max-height: 100%; padding: clamp(18px, 4vh, 38px) 10px; position: relative; z-index: 2; text-align: center; }
+        .lucky-icons { margin-bottom: 7px; font-size: clamp(2rem, 6vh, 4.2rem); line-height: 1; }
+        #popup-point-title { margin: 0 0 12px; color: #dc2626; font-size: clamp(2rem, 6vw, 4.7rem); font-weight: 900; line-height: 1.08; overflow-wrap: anywhere; text-shadow: 0 3px #fff; }
+        .reward-box { width: 100%; margin-bottom: 12px; padding: clamp(11px, 2vh, 20px); border: 4px solid #facc15; border-radius: 16px; background: #fef9c3; box-shadow: inset 0 2px 8px rgba(0,0,0,.1); }
+        .reward-box small { display: block; color: #57534e; font-weight: 900; }
+        #popup-reward { margin: 2px 0 0; color: #1e3a8a; font-size: clamp(1.5rem, 4.2vw, 3rem); font-weight: 900; line-height: 1.18; overflow-wrap: anywhere; }
+        #popup-message { max-height: 18vh; margin: 0 0 16px; overflow: auto; color: #292524; font-size: clamp(1.2rem, 3vw, 2.1rem); font-weight: 900; overflow-wrap: anywhere; }
+        .btn-ok { min-width: 190px; min-height: 58px; padding: 9px 48px; border: 4px solid #fff; border-radius: 999px; background: #dc2626; color: #fff; font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 900; box-shadow: 0 6px 14px rgba(0,0,0,.25); }
+        .confirm-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 70;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            background: rgba(28,25,23,.76);
+        }
+        .confirm-panel {
+            width: min(92vw, 620px);
+            padding: clamp(22px, 4vw, 36px);
+            border: 6px solid #facc15;
+            border-radius: 24px;
+            background: #fff;
+            text-align: center;
+            box-shadow: 0 20px 55px rgba(0,0,0,.42);
+        }
+        .confirm-panel h2 { margin: 0 0 12px; color: #991b1b; font-size: clamp(1.55rem, 3vw, 2.2rem); font-weight: 900; }
+        .confirm-panel p { margin: 0 0 22px; color: #292524; font-size: clamp(1.05rem, 2vw, 1.35rem); font-weight: 800; overflow-wrap: anywhere; }
+        .confirm-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .confirm-buttons button { min-height: 58px; border-radius: 14px; font-size: clamp(1rem, 2vw, 1.3rem); font-weight: 900; cursor: pointer; }
+        .btn-cancel { border: 2px solid #78716c; background: #f5f5f4; color: #292524; }
+        .btn-confirm-undo { border: 2px solid #991b1b; background: #b91c1c; color: #fff; }
+        .confetti { position: absolute; top: -16px; z-index: 50; width: 10px; height: 15px; pointer-events: none; animation: fall linear forwards; }
+        @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
+
+        /* ===== 画面サイズ別調整 ===== */
+        @media (max-width: 900px) {
+            .total-card { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+            .total-heading, .total-number-wrap, .remaining-box { grid-column: 1; }
+            .remaining-box { grid-row: 3; max-width: 100%; width: 100%; margin-top: 7px; padding: 7px 12px; }
+            #disp-remaining { display: inline; font-size: 1.55rem; }
+            .operation-grid { grid-template-columns: 1fr; }
+            .add-panel { grid-template-columns: minmax(0, 1fr) minmax(180px, .6fr); }
+            .milestone-row { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 620px) {
+            :root { --header-height: 104px; }
+            .app-header { align-items: stretch; flex-direction: column; }
+            .app-title { text-align: center; }
+            .tab-list { width: 100%; }
+            .tab-btn { flex: 1; }
+            .add-panel { grid-template-columns: 1fr; }
+            .add-title { grid-column: 1; }
+            .btn-add { min-height: 70px; }
+            .history-actions { flex-direction: column; }
+            .progress-stage { min-height: 158px; }
+        }
+        @media (min-width: 1000px) and (max-height: 760px) {
+            :root { --header-height: 52px; }
+            .app-header { padding-block: 5px; }
+            #view-main { padding-top: 6px; gap: 6px; }
+            .event-duration { padding-block: 2px; }
+            .total-card { min-height: 130px; padding-block: 8px; }
+            .progress-stage { min-height: 116px; padding-top: 4px; }
+            .progress-container { height: 42px; }
+            .milestone-label { top: calc(42px + var(--lane) * 30px); }
+            .operation-grid { gap: 10px; }
+            .add-panel { padding: 10px 14px; }
+            #input-points { height: 78px; }
+            .btn-add { min-height: 76px; }
+            .reward-panel { padding-block: 6px; }
+            #list-rewards { max-height: 58px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+            .progress-bar-fill { transition-duration: .01ms; }
+        }
+    </style>
+</head>
+<body>
+    <div id="status-banner" class="status-banner" role="alert" hidden></div>
+
+    <header class="app-header">
+        <h1 class="app-title title-font" id="header-event-name">ロトポイント</h1>
+        <nav class="tab-list" aria-label="画面切り替え">
+            <button type="button" onclick="switchTab('main')" id="tab-main-btn" class="tab-btn active">実施画面</button>
+            <button type="button" onclick="switchTab('settings')" id="tab-settings-btn" class="tab-btn">設定・データ管理</button>
+        </nav>
+    </header>
+
+    <main id="view-main">
+        <p id="disp-duration" class="event-duration">開催期間: 2026年12月1日 〜 12月25日</p>
+
+        <section class="total-card" aria-labelledby="total-heading">
+            <h2 id="total-heading" class="total-heading title-font">現在の累計ポイント</h2>
+            <div class="total-number-wrap">
+                <span id="disp-total">0</span><span class="total-unit">pt</span>
+            </div>
+            <div class="remaining-box">最終目標まで あと<span id="disp-remaining">0</span>pt!</div>
+        </section>
+
+        <section class="progress-stage" aria-label="目標までの進行状況">
+            <div class="progress-caption"><span>目標への道のり</span><span id="progress-percent">0%</span></div>
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+        </section>
+
+        <section class="operation-grid">
+            <div class="panel add-panel">
+                <h2 class="add-title">一人分のポイントを加算</h2>
+                <div class="point-input-wrap">
+                    <input type="text" id="input-points" inputmode="numeric" autocomplete="off" maxlength="15" placeholder="0" aria-describedby="input-error">
+                    <span class="input-unit">pt</span>
+                </div>
+                <button type="button" id="add-button" onclick="addPoints()" class="btn-add title-font">🎊 加算！</button>
+                <p id="input-error" class="input-error" role="alert"></p>
+            </div>
+
+            <div class="info-panel">
+                <div class="panel daily-row">
+                    <span class="daily-label">本日の加算人数</span>
+                    <span class="daily-value"><span id="disp-daily-count">0</span><small> 人</small></span>
+                </div>
+                <div class="panel reward-panel">
+                    <h3>達成済み特典 🎁</h3>
+                    <ul id="list-rewards"></ul>
+                </div>
+                <div class="history-actions">
+                    <button type="button" id="undo-button" onclick="undoLast()" class="btn-undo">↩️ 直前の加算を取り消す</button>
+                    <details class="history-details" id="history-details">
+                        <summary>最近の履歴</summary>
+                        <div class="history-popover">
+                            <table class="history-table">
+                                <thead><tr><th>日時</th><th>加算</th></tr></thead>
+                                <tbody id="list-history"></tbody>
+                            </table>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <main id="view-settings" class="hidden">
+        <section class="settings-card">
+            <h2>基本設定</h2>
+            <div class="form-stack">
+                <div class="form-field"><label for="set-event-name">イベント名</label><input type="text" id="set-event-name" maxlength="100"></div>
+                <div class="form-field"><label for="set-duration">開催期間</label><input type="text" id="set-duration" maxlength="100" placeholder="例: 2026年12月1日 〜 12月25日"></div>
+                <div class="form-field"><label for="set-final-goal">最終目標ポイント</label><input type="text" inputmode="numeric" id="set-final-goal" maxlength="15"></div>
+            </div>
+        </section>
+
+        <section class="settings-card">
+            <div class="settings-heading-row">
+                <h2>目標と特典の設定</h2>
+                <button type="button" onclick="addMilestoneRow()" class="btn btn-green">＋ 目標を追加</button>
+            </div>
+            <div id="settings-milestones-container" class="milestone-settings"></div>
+            <div class="save-settings-wrap"><button type="button" onclick="saveSettings()" class="btn btn-red">設定を保存して更新する</button></div>
+        </section>
+
+        <section class="settings-card">
+            <h2>データ管理（バックアップ・復元）</h2>
+            <p class="data-note">イベント終了までのデータを守るため、定期的にJSONバックアップを保存してください。</p>
+            <div class="data-actions">
+                <button type="button" onclick="exportData()" class="btn btn-blue">💾 バックアップを書き出す</button>
+                <label class="btn btn-purple">📂 バックアップを読み込む<input type="file" id="import-file" accept=".json,application/json" hidden onchange="importData(event)"></label>
+            </div>
+            <div class="manual-row">
+                <label for="manual-total-input"><strong>累計ポイントの手動再設定</strong></label>
+                <input type="text" inputmode="numeric" id="manual-total-input" maxlength="15" placeholder="新しい累計ポイント">
+                <button type="button" onclick="manualSetTotal()" class="btn btn-red">確認して再設定</button>
+            </div>
+        </section>
+    </main>
+
+    <div id="celebration-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center modal-overlay" role="dialog" aria-modal="true" aria-labelledby="popup-point-title">
+        <div class="celebration-shell">
+            <div class="sunburst-bg"></div>
+            <div class="modal-content-wrapper">
+                <div class="lucky-icons" aria-hidden="true">👺 🪙 🎊 🐟 😸</div>
+                <h2 id="popup-point-title" class="title-font">1,000,000 pt 達成!!</h2>
+                <div class="reward-box"><small>達成特典</small><p id="popup-reward" class="title-font"></p></div>
+                <p id="popup-message" class="title-font"></p>
+                <button type="button" id="popup-ok" onclick="closePopup()" class="btn-ok">OK！</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="undo-confirm-modal" class="confirm-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="undo-confirm-title">
+        <div class="confirm-panel">
+            <h2 id="undo-confirm-title">直前の加算を取り消しますか？</h2>
+            <p id="undo-confirm-message">直前の加算を取り消し、累計ポイントを戻します。</p>
+            <div class="confirm-buttons">
+                <button type="button" class="btn-cancel" onclick="cancelUndo()">キャンセル</button>
+                <button type="button" id="confirm-undo-button" class="btn-confirm-undo" onclick="confirmUndo()">取り消す</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* =========================================================
+           定数・状態管理
+           ========================================================= */
+        const STORAGE_KEY = 'jumboPointData';
+        const APP_VERSION = '2.0.1';
+        const DEFAULT_STATE = {
+            eventName: 'ロトポイント',
+            duration: '2026年12月1日 〜 12月25日',
+            finalGoal: 3000000,
+            totalPoints: 0,
+            dailyCount: 0,
+            lastDate: getLocalDateKey(),
+            history: [],
+            milestones: [
+                { id: 1, points: 1000000, reward: 'ステッカー1枚', message: 'まずは100万達成！', achieved: false },
+                { id: 2, points: 2000000, reward: 'ステッカーさらに1枚', message: 'すごい！200万突破！', achieved: false },
+                { id: 3, points: 3000000, reward: 'ドリンクチケット1枚', message: '大目標達成！おめでとう！', achieved: false }
+            ]
+        };
+
+        let state = clone(DEFAULT_STATE);
+        let dataLoadError = false;
+        let popupQueue = [];
+        let confettiInterval = null;
+        let actionLocked = false;
+        let totalResizeObserver = null;
+
+        function clone(value) { return JSON.parse(JSON.stringify(value)); }
+
+        function getLocalDateKey(date = new Date()) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function isSafeNonNegativeInteger(value) {
+            return Number.isSafeInteger(value) && value >= 0;
+        }
+
+        function isSafePositiveInteger(value) {
+            return Number.isSafeInteger(value) && value > 0;
+        }
+
+        function parseIntegerText(value, allowZero = false) {
+            const text = String(value ?? '').trim();
+            if (!/^\d+$/.test(text)) return null;
+            const number = Number(text);
+            if (!Number.isSafeInteger(number)) return null;
+            if (allowZero ? number < 0 : number <= 0) return null;
+            return number;
+        }
+
+        /* =========================================================
+           データ検証・互換読み込み・安全な保存
+           ========================================================= */
+        function normalizeState(candidate, strict = false) {
+            if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('データ全体がオブジェクトではありません。');
+            if (!isSafeNonNegativeInteger(candidate.totalPoints)) throw new Error('累計ポイントが不正です。');
+            if (!isSafePositiveInteger(candidate.finalGoal)) throw new Error('最終目標ポイントが不正です。');
+            if (!Array.isArray(candidate.history)) throw new Error('加算履歴が不正です。');
+            if (!Array.isArray(candidate.milestones)) throw new Error('目標データが不正です。');
+
+            const normalized = clone(DEFAULT_STATE);
+            normalized.eventName = typeof candidate.eventName === 'string' ? candidate.eventName.slice(0, 100) : (strict ? (() => { throw new Error('イベント名が不正です。'); })() : DEFAULT_STATE.eventName);
+            normalized.duration = typeof candidate.duration === 'string' ? candidate.duration.slice(0, 100) : (strict ? (() => { throw new Error('開催期間が不正です。'); })() : DEFAULT_STATE.duration);
+            normalized.finalGoal = candidate.finalGoal;
+            normalized.totalPoints = candidate.totalPoints;
+            normalized.lastDate = typeof candidate.lastDate === 'string' && candidate.lastDate ? candidate.lastDate : getLocalDateKey();
+            normalized.dailyCount = isSafeNonNegativeInteger(candidate.dailyCount) ? candidate.dailyCount : 0;
+
+            normalized.history = candidate.history.map((item, index) => {
+                if (!item || typeof item !== 'object' || !isSafePositiveInteger(item.points)) throw new Error(`履歴${index + 1}件目のポイントが不正です。`);
+                return {
+                    time: typeof item.time === 'string' ? item.time.slice(0, 80) : '',
+                    points: item.points,
+                    date: typeof item.date === 'string' ? item.date.slice(0, 40) : '',
+                    dayKey: typeof item.dayKey === 'string' ? item.dayKey.slice(0, 20) : '',
+                    timestamp: typeof item.timestamp === 'string' ? item.timestamp.slice(0, 40) : ''
+                };
+            });
+
+            const ids = new Set();
+            normalized.milestones = candidate.milestones.map((item, index) => {
+                if (!item || typeof item !== 'object') throw new Error(`目標${index + 1}件目が不正です。`);
+                if (!isSafePositiveInteger(item.points)) throw new Error(`目標${index + 1}件目のポイントが不正です。`);
+                if (typeof item.reward !== 'string' || !item.reward.trim()) throw new Error(`目標${index + 1}件目の特典名が不正です。`);
+                const rawId = Number(item.id);
+                const id = Number.isSafeInteger(rawId) && rawId > 0 && !ids.has(rawId) ? rawId : Date.now() + index;
+                ids.add(id);
+                return {
+                    id,
+                    points: item.points,
+                    reward: item.reward.slice(0, 160),
+                    message: typeof item.message === 'string' ? item.message.slice(0, 300) : '',
+                    achieved: candidate.totalPoints >= item.points
+                };
+            });
+            return normalized;
+        }
+
+        function showStatus(message) {
+            const banner = document.getElementById('status-banner');
+            banner.textContent = message;
+            banner.hidden = false;
+        }
+
+        function clearStatus() {
+            const banner = document.getElementById('status-banner');
+            banner.textContent = '';
+            banner.hidden = true;
+        }
+
+        function loadData() {
+            let savedData;
+            try {
+                savedData = localStorage.getItem(STORAGE_KEY);
+            } catch (error) {
+                dataLoadError = true;
+                showStatus('保存領域を読み込めません。ブラウザの保存設定を確認し、バックアップから復元してください。データは上書きしません。');
+                console.error('localStorage read failed', error);
+                return;
+            }
+            if (savedData === null) return;
+            try {
+                const parsed = JSON.parse(savedData);
+                state = normalizeState(parsed, false);
+            } catch (error) {
+                dataLoadError = true;
+                showStatus('保存データを正しく読み込めません。0ポイントとして続行せず、操作を停止しました。設定画面から正常なバックアップを復元してください。');
+                console.error('Saved data validation failed', error);
+            }
+        }
+
+        function persistCandidate(candidate) {
+            if (dataLoadError) {
+                alert('保存データの読み込み異常があるため、現在のデータは上書きしません。先に正常なバックアップを読み込んでください。');
+                return false;
+            }
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate));
+                state = candidate;
+                clearStatus();
+                return true;
+            } catch (error) {
+                showStatus('データを保存できませんでした。今回の変更は確定していません。ブラウザの空き容量・保存設定を確認し、バックアップを取得してください。');
+                alert('保存に失敗したため、今回の変更は反映しませんでした。');
+                console.error('localStorage write failed', error);
+                return false;
+            }
+        }
+
+        function checkDailyReset() {
+            if (dataLoadError) return;
+            const today = getLocalDateKey();
+            if (state.lastDate !== today) {
+                const next = clone(state);
+                next.dailyCount = 0;
+                next.lastDate = today;
+                persistCandidate(next);
+            }
+        }
+
+        /* =========================================================
+           初期化・画面描画
+           ========================================================= */
+        function init() {
+            loadData();
+            checkDailyReset();
+            renderMainScreen();
+            renderSettingsScreen();
+
+            const pointInput = document.getElementById('input-points');
+            pointInput.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addPoints();
+                }
+            });
+            pointInput.addEventListener('input', () => { document.getElementById('input-error').textContent = ''; });
+
+            if ('ResizeObserver' in window) {
+                totalResizeObserver = new ResizeObserver(fitTotalNumber);
+                totalResizeObserver.observe(document.querySelector('.total-number-wrap'));
+            }
+            window.addEventListener('resize', () => { fitTotalNumber(); renderProgressBar(); });
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkDailyReset(); renderMainScreen(); } });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && !document.getElementById('undo-confirm-modal').classList.contains('hidden')) cancelUndo();
+            });
+        }
+
+        function fitTotalNumber() {
+            const numberEl = document.getElementById('disp-total');
+            const wrap = numberEl?.parentElement;
+            if (!numberEl || !wrap) return;
+            numberEl.style.fontSize = '';
+            const unit = wrap.querySelector('.total-unit');
+            const available = Math.max(120, wrap.clientWidth - (unit?.offsetWidth || 0) - 24);
+            let size = parseFloat(getComputedStyle(numberEl).fontSize);
+            while (numberEl.scrollWidth > available && size > 44) {
+                size -= 2;
+                numberEl.style.fontSize = `${size}px`;
+            }
+        }
+
+        function renderMainScreen() {
+            document.getElementById('header-event-name').textContent = state.eventName;
+            document.getElementById('disp-duration').textContent = `開催期間: ${state.duration}`;
+            document.getElementById('disp-total').textContent = state.totalPoints.toLocaleString('ja-JP');
+            document.getElementById('disp-remaining').textContent = Math.max(0, state.finalGoal - state.totalPoints).toLocaleString('ja-JP');
+            document.getElementById('disp-daily-count').textContent = state.dailyCount.toLocaleString('ja-JP');
+            document.getElementById('undo-button').disabled = dataLoadError || state.history.length === 0;
+            document.getElementById('add-button').disabled = dataLoadError || actionLocked;
+            renderHistory();
+            renderRewards();
+            renderProgressBar();
+            requestAnimationFrame(fitTotalNumber);
+        }
+
+        function renderHistory() {
+            const historyList = document.getElementById('list-history');
+            historyList.replaceChildren();
+            const recent = [...state.history].reverse().slice(0, 10);
+            if (!recent.length) {
+                const row = historyList.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = 2;
+                cell.textContent = 'まだ加算履歴はありません';
+                cell.style.color = '#78716c';
+                return;
+            }
+            recent.forEach(item => {
+                const row = historyList.insertRow();
+                const timeCell = row.insertCell();
+                const pointCell = row.insertCell();
+                timeCell.textContent = item.date ? `${item.date} ${item.time}` : item.time;
+                pointCell.textContent = `+ ${item.points.toLocaleString('ja-JP')} pt`;
+            });
+        }
+
+        function renderRewards() {
+            const list = document.getElementById('list-rewards');
+            list.replaceChildren();
+            const achieved = state.milestones.filter(item => item.achieved).sort((a, b) => b.points - a.points);
+            if (!achieved.length) {
+                const item = document.createElement('li');
+                item.style.color = '#a8a29e';
+                item.textContent = 'まだ達成した特典はありません';
+                list.appendChild(item);
+                return;
+            }
+            achieved.forEach(milestone => {
+                const item = document.createElement('li');
+                const seal = document.createElement('span');
+                const text = document.createElement('span');
+                seal.textContent = '💮';
+                text.textContent = `${milestone.reward}（${milestone.points.toLocaleString('ja-JP')} pt）`;
+                item.append(seal, text);
+                list.appendChild(item);
+            });
+        }
+
+        function renderProgressBar() {
+            const container = document.getElementById('progress-container');
+            const fill = document.getElementById('progress-fill');
+            if (!container || !fill) return;
+            container.querySelectorAll('.milestone-marker, .milestone-label').forEach(element => element.remove());
+            const maxPoints = Math.max(1, state.finalGoal);
+            const rawPercent = (state.totalPoints / maxPoints) * 100;
+            const visiblePercent = Math.min(100, Math.max(0, rawPercent));
+            fill.style.width = `${visiblePercent}%`;
+            document.getElementById('progress-percent').textContent = rawPercent >= 100 ? `${Math.floor(rawPercent).toLocaleString('ja-JP')}% 達成` : `${Math.floor(rawPercent)}%`;
+
+            const width = Math.max(container.clientWidth, 600);
+            const lanes = [-Infinity, -Infinity, -Infinity];
+            const sorted = [...state.milestones].sort((a, b) => a.points - b.points);
+            sorted.forEach(milestone => {
+                const percent = (milestone.points / maxPoints) * 100;
+                if (percent < 0 || percent > 100) return;
+                const marker = document.createElement('div');
+                marker.className = `milestone-marker${percent >= 100 ? ' at-end' : ''}`;
+                marker.style.left = `${percent}%`;
+                marker.title = `${milestone.points.toLocaleString('ja-JP')} pt: ${milestone.reward}`;
+                container.appendChild(marker);
+
+                const x = Math.min(width - 84, Math.max(84, width * percent / 100));
+                let lane = lanes.findIndex(lastX => x - lastX >= 176);
+                if (lane < 0) lane = lanes.indexOf(Math.min(...lanes));
+                lanes[lane] = x;
+
+                const label = document.createElement('div');
+                label.className = `milestone-label${milestone.achieved ? ' achieved' : ''}`;
+                label.style.setProperty('--marker-position', `${percent}%`);
+                label.style.setProperty('--lane', String(lane));
+                label.title = `${milestone.points.toLocaleString('ja-JP')} pt: ${milestone.reward}`;
+                const points = document.createElement('span');
+                const reward = document.createElement('span');
+                points.textContent = `${milestone.achieved ? '💮 ' : ''}${milestone.points.toLocaleString('ja-JP')} pt`;
+                reward.className = 'reward-name';
+                reward.textContent = milestone.reward;
+                label.append(points, reward);
+                container.appendChild(label);
+            });
+        }
+
+        /* =========================================================
+           加算・取消（保存成功時だけ確定）
+           ========================================================= */
+        function lockActionsTemporarily() {
+            actionLocked = true;
+            document.getElementById('add-button').disabled = true;
+            window.setTimeout(() => {
+                actionLocked = false;
+                document.getElementById('add-button').disabled = dataLoadError;
+            }, 350);
+        }
+
+        function addPoints() {
+            if (actionLocked || dataLoadError) return;
+            const input = document.getElementById('input-points');
+            const error = document.getElementById('input-error');
+            const points = parseIntegerText(input.value, false);
+            if (points === null || !Number.isSafeInteger(state.totalPoints + points)) {
+                error.textContent = '正の整数を入力してください（小数・マイナス・記号は加算できません）。';
+                input.focus();
+                return;
+            }
+            lockActionsTemporarily();
+            checkDailyReset();
+            if (dataLoadError) return;
+
+            const next = clone(state);
+            const previousTotal = next.totalPoints;
+            const now = new Date();
+            const dayKey = getLocalDateKey(now);
+            next.totalPoints += points;
+            next.dailyCount += 1;
+            next.lastDate = dayKey;
+            next.history.push({
+                timestamp: now.toISOString(),
+                date: now.toLocaleDateString('ja-JP'),
+                dayKey,
+                time: now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                points
+            });
+
+            const newlyAchieved = [];
+            next.milestones.sort((a, b) => a.points - b.points).forEach(milestone => {
+                if (!milestone.achieved && previousTotal < milestone.points && next.totalPoints >= milestone.points) newlyAchieved.push(clone(milestone));
+                milestone.achieved = next.totalPoints >= milestone.points;
+            });
+
+            if (!persistCandidate(next)) return;
+            input.value = '';
+            error.textContent = '';
+            renderMainScreen();
+            input.focus();
+            popupQueue.push(...newlyAchieved);
+            if (popupQueue.length && document.getElementById('celebration-modal').classList.contains('hidden')) showNextPopup();
+        }
+
+        function undoLast() {
+            if (dataLoadError || !state.history.length) return;
+            const lastItem = state.history[state.history.length - 1];
+            document.getElementById('undo-confirm-message').textContent = `直前の ${lastItem.points.toLocaleString('ja-JP')} pt の加算を取り消し、累計ポイントを戻します。`;
+            document.getElementById('undo-confirm-modal').classList.remove('hidden');
+            requestAnimationFrame(() => document.getElementById('confirm-undo-button').focus());
+        }
+
+        function cancelUndo() {
+            document.getElementById('undo-confirm-modal').classList.add('hidden');
+            document.getElementById('undo-button').focus();
+        }
+
+        function confirmUndo() {
+            if (dataLoadError || !state.history.length) {
+                cancelUndo();
+                renderMainScreen();
+                return;
+            }
+
+            const next = clone(state);
+            const removed = next.history.pop();
+            next.totalPoints = Math.max(0, next.totalPoints - removed.points);
+            const today = getLocalDateKey();
+            const isTodayRecord = removed.dayKey ? removed.dayKey === today : next.lastDate === today;
+            if (isTodayRecord) next.dailyCount = Math.max(0, next.dailyCount - 1);
+            next.milestones.forEach(milestone => { milestone.achieved = next.totalPoints >= milestone.points; });
+
+            if (!persistCandidate(next)) {
+                cancelUndo();
+                return;
+            }
+            popupQueue = [];
+            hidePopup();
+            document.getElementById('undo-confirm-modal').classList.add('hidden');
+            renderMainScreen();
+            document.getElementById('input-points').focus();
+        }
+
+        /* =========================================================
+           お祝いポップアップ・紙吹雪
+           ========================================================= */
+        function showNextPopup() {
+            if (!popupQueue.length) { hidePopup(); return; }
+            const milestone = popupQueue[0];
+            const current = state.milestones.find(item => item.id === milestone.id);
+            if (!current || !current.achieved || state.totalPoints < current.points) {
+                popupQueue.shift();
+                showNextPopup();
+                return;
+            }
+            document.getElementById('popup-point-title').textContent = `${current.points.toLocaleString('ja-JP')} pt 達成!!`;
+            document.getElementById('popup-reward').textContent = current.reward;
+            document.getElementById('popup-message').textContent = current.message || 'おめでとうございます！';
+            document.getElementById('celebration-modal').classList.remove('hidden');
+            startConfetti();
+            requestAnimationFrame(() => document.getElementById('popup-ok').focus());
+        }
+
+        function closePopup() {
+            popupQueue.shift();
+            stopConfetti();
+            showNextPopup();
+        }
+
+        function hidePopup() {
+            document.getElementById('celebration-modal').classList.add('hidden');
+            stopConfetti();
+        }
+
+        function startConfetti() {
+            stopConfetti();
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const modal = document.getElementById('celebration-modal');
+            const colors = ['#dc2626', '#facc15', '#fff', '#16a34a', '#2563eb', '#db2777'];
+            let created = 0;
+            confettiInterval = window.setInterval(() => {
+                if (created >= 100 || modal.classList.contains('hidden')) { stopConfettiIntervalOnly(); return; }
+                for (let i = 0; i < 2; i += 1) {
+                    const piece = document.createElement('i');
+                    piece.className = 'confetti';
+                    piece.style.left = `${Math.random() * 100}%`;
+                    piece.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                    piece.style.animationDuration = `${2.4 + Math.random() * 1.8}s`;
+                    modal.appendChild(piece);
+                    created += 1;
+                    window.setTimeout(() => piece.remove(), 4500);
+                }
+            }, 90);
+        }
+
+        function stopConfettiIntervalOnly() {
+            if (confettiInterval !== null) window.clearInterval(confettiInterval);
+            confettiInterval = null;
+        }
+
+        function stopConfetti() {
+            stopConfettiIntervalOnly();
+            document.querySelectorAll('.confetti').forEach(piece => piece.remove());
+        }
+
+        /* =========================================================
+           画面切替・設定
+           ========================================================= */
+        function switchTab(tabId) {
+            const main = document.getElementById('view-main');
+            const settings = document.getElementById('view-settings');
+            const mainButton = document.getElementById('tab-main-btn');
+            const settingsButton = document.getElementById('tab-settings-btn');
+            const isMain = tabId === 'main';
+            main.classList.toggle('hidden', !isMain);
+            settings.classList.toggle('hidden', isMain);
+            mainButton.classList.toggle('active', isMain);
+            settingsButton.classList.toggle('active', !isMain);
+            if (isMain) renderMainScreen(); else renderSettingsScreen();
+        }
+
+        function renderSettingsScreen() {
+            document.getElementById('set-event-name').value = state.eventName;
+            document.getElementById('set-duration').value = state.duration;
+            document.getElementById('set-final-goal').value = state.finalGoal;
+            const container = document.getElementById('settings-milestones-container');
+            container.replaceChildren();
+            [...state.milestones].sort((a, b) => a.points - b.points).forEach(milestone => appendMilestoneRow(milestone, false));
+        }
+
+        function makeRowField(labelText, className, value, inputMode, maxLength) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'row-field';
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+            label.textContent = labelText;
+            input.type = 'text';
+            input.className = className;
+            input.value = value;
+            input.maxLength = maxLength;
+            if (inputMode) input.inputMode = inputMode;
+            wrapper.append(label, input);
+            return wrapper;
+        }
+
+        function appendMilestoneRow(milestone, isNew) {
+            const row = document.createElement('div');
+            row.className = `milestone-row${isNew ? ' new-row' : ''}`;
+            row.dataset.id = String(milestone.id);
+            row.append(
+                makeRowField('達成ポイント', 'milestone-point', milestone.points || '', 'numeric', 15),
+                makeRowField('特典名', 'milestone-reward', milestone.reward || '', '', 160),
+                makeRowField('お祝いメッセージ', 'milestone-message', milestone.message || '', '', 300)
+            );
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn-remove';
+            remove.textContent = '削除';
+            remove.addEventListener('click', () => row.remove());
+            row.appendChild(remove);
+            document.getElementById('settings-milestones-container').appendChild(row);
+        }
+
+        function addMilestoneRow() {
+            appendMilestoneRow({ id: Date.now(), points: '', reward: '', message: '' }, true);
+        }
+
+        function saveSettings() {
+            if (dataLoadError) { alert('保存データの異常を解決するまで設定は変更できません。'); return; }
+            const eventName = document.getElementById('set-event-name').value.trim();
+            const duration = document.getElementById('set-duration').value.trim();
+            const finalGoal = parseIntegerText(document.getElementById('set-final-goal').value, false);
+            if (!eventName || !duration || finalGoal === null) { alert('イベント名、開催期間、正の整数の最終目標ポイントを入力してください。'); return; }
+
+            const rows = [...document.querySelectorAll('.milestone-row')];
+            const milestones = [];
+            const usedIds = new Set();
+            for (let index = 0; index < rows.length; index += 1) {
+                const row = rows[index];
+                const points = parseIntegerText(row.querySelector('.milestone-point').value, false);
+                const reward = row.querySelector('.milestone-reward').value.trim();
+                const message = row.querySelector('.milestone-message').value.trim();
+                if (points === null || !reward) { alert(`目標${index + 1}の達成ポイントと特典名を正しく入力してください。`); return; }
+                let id = Number(row.dataset.id);
+                if (!Number.isSafeInteger(id) || id <= 0 || usedIds.has(id)) id = Date.now() + index;
+                usedIds.add(id);
+                milestones.push({ id, points, reward, message, achieved: state.totalPoints >= points });
+            }
+
+            const next = clone(state);
+            next.eventName = eventName.slice(0, 100);
+            next.duration = duration.slice(0, 100);
+            next.finalGoal = finalGoal;
+            next.milestones = milestones.sort((a, b) => a.points - b.points);
+            if (!confirm('設定を保存します。達成状態は現在の累計ポイントに合わせて再計算されます。よろしいですか？')) return;
+            if (!persistCandidate(next)) return;
+            popupQueue = [];
+            hidePopup();
+            alert('設定を保存しました。');
+            switchTab('main');
+        }
+
+        /* =========================================================
+           バックアップ・復元・累計再設定
+           ========================================================= */
+        function exportData() {
+            const payload = { ...clone(state), appVersion: APP_VERSION, exportedAt: new Date().toISOString() };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `lotto_points_backup_${getLocalDateKey().replaceAll('-', '')}.json`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+
+        function importData(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = loadEvent => {
+                try {
+                    const parsed = JSON.parse(String(loadEvent.target.result));
+                    const normalized = normalizeState(parsed, true);
+                    if (!confirm(`バックアップを読み込み、現在の設定・累計・履歴をすべて置き換えます。\n復元する累計: ${normalized.totalPoints.toLocaleString('ja-JP')} pt\nよろしいですか？`)) return;
+                    try {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+                    } catch (error) {
+                        showStatus('バックアップは正常ですが、保存領域への書き込みに失敗しました。現在のデータは変更していません。');
+                        alert('保存領域への書き込みに失敗したため、復元しませんでした。');
+                        console.error(error);
+                        return;
+                    }
+                    state = normalized;
+                    dataLoadError = false;
+                    popupQueue = [];
+                    hidePopup();
+                    clearStatus();
+                    alert('バックアップを復元しました。');
+                    renderSettingsScreen();
+                    switchTab('main');
+                } catch (error) {
+                    alert(`バックアップの内容が不正です。既存データは変更していません。\n${error.message}`);
+                    console.error(error);
+                } finally {
+                    event.target.value = '';
+                }
+            };
+            reader.onerror = () => { alert('ファイルを読み込めませんでした。既存データは変更していません。'); event.target.value = ''; };
+            reader.readAsText(file);
+        }
+
+        function manualSetTotal() {
+            if (dataLoadError) { alert('保存データの異常を解決するまで累計は変更できません。'); return; }
+            const input = document.getElementById('manual-total-input');
+            const total = parseIntegerText(input.value, true);
+            if (total === null) { alert('0以上の整数を入力してください。'); return; }
+            if (!confirm(`累計ポイントを ${total.toLocaleString('ja-JP')} pt に再設定します。\n加算履歴と本日の人数は変更しません。よろしいですか？`)) return;
+            const next = clone(state);
+            next.totalPoints = total;
+            next.milestones.forEach(milestone => { milestone.achieved = total >= milestone.points; });
+            if (!persistCandidate(next)) return;
+            popupQueue = [];
+            hidePopup();
+            input.value = '';
+            alert('累計ポイントを再設定しました。');
+            switchTab('main');
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
